@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 /* Создано в компании www.gateon.net
  * =================================================================
  * Модуль оплаты Интеркасса 2.0 для Joomla 3.4.8 + VirtueMart 3.0.x 
@@ -32,6 +32,7 @@ class plgVmPaymentInterkassa extends vmPSPlugin
 		$varsToPush = $this->getVarsToPush();
 	
         $this->setConfigParameterable($this->_configTableFieldName, $varsToPush);
+
     }    
     
     protected function getVmPluginCreateTableSQL()
@@ -57,7 +58,7 @@ class plgVmPaymentInterkassa extends vmPSPlugin
     function plgVmConfirmedOrder($cart, $order)
     {
         if (!($method = $this->getVmPluginMethod($order['details']['BT']->virtuemart_paymentmethod_id))) {
-            return null; // Another method was selected, do nothing
+            return null;
         }
         if (!$this->selectedThisElement($method->payment_element)) {
             return false;
@@ -88,7 +89,7 @@ class plgVmPaymentInterkassa extends vmPSPlugin
 
         $dateexp = date("Y-m-d H:i:s", time() + 24 * 3600);
         $amount = ceil($order['details']['BT']->order_total*100)/100;
-        $virtuemart_order_id    = VirtueMartModelOrders::getOrderIdByOrderNumber($order['details']['BT']->order_number);
+        $virtuemart_order_id = VirtueMartModelOrders::getOrderIdByOrderNumber($order['details']['BT']->order_number);
         
         $desc = 'Оплата заказа №'.$order['details']['BT']->order_number;
 
@@ -232,47 +233,66 @@ class plgVmPaymentInterkassa extends vmPSPlugin
     
     
     public function plgVmOnPaymentNotification()
-    {		
-/*
-	if (JRequest::getVar('pelement') != 'interkassa') {
-            return null;
-        }
+    {	
         if (!class_exists('VirtueMartModelOrders'))
             require(JPATH_VM_ADMINISTRATOR . DS . 'models' . DS . 'orders.php');
 
-        $orderid      = $_POST['LMI_PAYMENT_NO'];
-        $payment      = $this->getDataByOrderId($orderid);
-        $method       = $this->getVmPluginMethod($payment->virtuemart_paymentmethod_id);		
-		$amount = ceil($payment->payment_order_total*100)/100;
-		
-        if ($method)
-        {			
-			if(isset($_POST['ik_inv_st'])) {
-                if ($_POST['ik_inv_st'] == "success" && $_POST['ik_co_id'] == $method->merchant_id)
-                    echo 'YES';
-                $order['order_status'] = $method->status_success;
-                $order['virtuemart_order_id'] = $orderid;
-                $order['customer_notified'] = 1;
-                $order['comments'] = JTExt::sprintf('INTERKASSA_PAYMENT_CONFIRMED', $payment->order_number);
-                $modelOrder = VmModel::getModel('orders');
-                $modelOrder->updateStatusForOneOrder($orderid, $order, true);
-            } else {
-                echo 'FAIL';
-                $order['order_status']        = $method->status_pending;
-                $order['virtuemart_order_id'] = $orderid;
-                $order['customer_notified']   = 0;
-                $order['comments']            = JTExt::sprintf('INTERKASSA_PAYMENT_CONFIRMED', $payment->order_number);
+        $orderid = $_POST['ik_pm_no'];
+        $payment = $this->getDataByOrderId($orderid);
+        $method = $this->getVmPluginMethod($payment->virtuemart_paymentmethod_id);        
+        $amount = ceil($payment->payment_order_total*100)/100;
 
-                $modelOrder = VmModel::getModel ('orders');
-                $modelOrder->updateStatusForOneOrder($orderid, $order, true);
-			}
+        if ($method){      
+
+            if (count($_POST) && $this->checkIP() && isset($_POST['ik_sign'])) {
+               
+	            if ($_POST['ik_inv_st'] == 'success' && $method->merchant_id == $_POST['ik_co_id'] ) {  
+	                if(isset($_REQUEST['ik_pw_via']) && $_REQUEST['ik_pw_via'] == 'test_interkassa_test_xts'){
+	                    $secret_key = $method->test_key;
+	                } else {
+	                    $secret_key = $method->secret_key;
+	                }
+
+	                $request = $_POST;
+	                $request_sign = $request['ik_sign'];
+	                unset($request['ik_sign']);
+
+	                //удаляем все поле которые не принимают участия в формировании цифровой подписи
+	                foreach ($request as $key => $value) {
+	                    if (!preg_match('/ik_/', $key)) continue;
+	                    $request[$key] = $value;
+	                }
+
+	                //формируем цифровую подпись
+	                ksort($request, SORT_STRING);
+	                array_push($request, $secret_key);
+	                $str = implode(':', $request);
+	                $sign = base64_encode(md5($str, true));
+
+	                if ($request_sign == $sign) {
+	                    $order['order_status'] = $method->status_success;
+	                    $order['virtuemart_order_id'] = $orderid;
+	                    $order['customer_notified'] = 1;
+	                    $order['comments'] = JTExt::sprintf('INTERKASSA_PAYMENT_CONFIRMED', $payment->order_number);
+	                    $modelOrder = VmModel::getModel('orders');
+	                    $modelOrder->updateStatusForOneOrder($orderid, $order, true);
+	                } else {
+		                $order['order_status']        = $method->status_pending;
+		                $order['virtuemart_order_id'] = $orderid;
+		                $order['customer_notified']   = 0;
+		                $order['comments']            = JTExt::sprintf('INTERKASSA_STATUS_FAILED', $payment->order_number);
+		                $modelOrder = VmModel::getModel ('orders');
+		                $modelOrder->updateStatusForOneOrder($orderid, $order, true);
+	                } 
+	            }           
+    		} else {
+	    		exit;
+	        	return null;
+    		}
 		} else {
-            echo "<?xml version=\"1.0\" encoding=\"UTF-8\"?><response><status>no</status><err_msg>Incorrect payment method</err_msg></response>";
-*/
             exit;
             return null;
-        //}
-		
+        }
     } 
     
     function plgVmOnUserPaymentCancel()
@@ -295,6 +315,26 @@ class plgVmPaymentInterkassa extends vmPSPlugin
         $this->handlePaymentUserCancel($virtuemart_order_id);
         
         return true;
-    }	
-	
+    }
+
+    function wrlog($content){
+        $file = $_SERVER['DOCUMENT_ROOT'].'/logs/log.txt';
+        $doc = fopen($file, 'a');
+   
+        file_put_contents($file, PHP_EOL . $content, FILE_APPEND);
+        fclose($doc);
+       
+    }
+ 	function checkIP(){
+	    $ip_stack = array(
+	        'ip_begin'=>'151.80.190.97',
+	        'ip_end'=>'151.80.190.104'
+	    );
+
+	    if(!ip2long($_SERVER['REMOTE_ADDR'])>=ip2long($ip_stack['ip_begin']) && !ip2long($_SERVER['REMOTE_ADDR'])<=ip2long($ip_stack['ip_end'])){
+	        $this->wrlog('REQUEST IP'.$_SERVER['REMOTE_ADDR'].'doesnt match');
+	        die('Ты мошенник! Пшел вон отсюда!');
+	    }
+	    return true;
+    }
 }
