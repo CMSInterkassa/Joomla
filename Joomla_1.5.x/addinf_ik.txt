@@ -1,0 +1,82 @@
+<?php
+/**
+ * @name Интеркасса 2.0
+ * @description Модуль разработан в компании GateOn предназначен для CMS Joomla 1.5.26 + VirtueMart 1.1.9
+ * @author www.gateon.net
+ * @email www@smartbyte.pro
+ * @version 1.0
+ */
+
+include_once(CLASSPATH . "payment/ps_interkassa2.cfg.php");
+
+global $VM_LANG;
+$VM_LANG->load('interkassa2');
+
+$ik_pm_no = $db->f("order_id");
+$ik_desc = '#' . $db->f("order_id");
+$ik_am = sprintf("%.2f", $db->f("order_total"));
+$ik_cur = $db->f('order_currency');
+
+$q1 = "select payment_method_id FROM #__{vm}_order_payment WHERE order_id = '$ik_pm_no'";
+$db->query($q1);
+$payment_method_id = $db->f('payment_method_id');
+
+$q2 = "select payment_class, payment_method_name FROM #__{vm}_payment_method WHERE payment_method_id = '" . $payment_method_id . "'";
+$db->query($q2);
+$payment_class = $db->f('payment_class');
+include_once(CLASSPATH . "payment/{$payment_class}.cfg.php");
+$payment_method_title = $db->f('payment_method_name');
+
+$ik_co_id = INTERKASSA_CO_ID;
+$secret_key = S_KEY;
+$ik_suc_u = URL . 'index.php?page=checkout.generic_result&option=com_virtuemart&result=success';
+$ik_pnd_u = URL . 'index.php?page=checkout.generic_result&option=com_virtuemart&result=success';
+$ik_fal_u = URL . 'index.php?page=checkout.generic_result&option=com_virtuemart&result=cancel';
+$ik_ia_u = URL . 'administrator/components/com_virtuemart/interkassa2_notify.php';
+
+$arg = [
+    'ik_cur' => $ik_cur,
+    'ik_co_id' => $ik_co_id,
+    'ik_pm_no' => $ik_pm_no,
+    'ik_am' => $ik_am,
+    'ik_desc' => $ik_desc,
+    'ik_ia_u' => $ik_ia_u,
+    'ik_suc_u' => $ik_suc_u,
+    'ik_fal_u' => $ik_fal_u,
+    'ik_pnd_u' => $ik_pnd_u,
+];
+
+ksort($arg, SORT_STRING);
+array_push($arg, $secret_key);
+$arg = implode(':', $arg);
+$ik_sign = base64_encode(md5($arg, true))
+?>
+
+<a href="https://www.interkassa.com/" target="_blank">
+    <div style='background: url("<?php echo IMAGEURL ?>ps_image/interkassa.gif");height: 38px; width: 149px;'></div>
+</a>
+<form action="https://sci.interkassa.com/" method="post">
+    <div class="tablebodytext" style="text-align:center">
+        <br>
+        <p><?php echo $VM_LANG->_('PAYMENT_INTERKASSA_TITLE') ?></p><br>
+        <br><?php echo $VM_LANG->_('PAYMENT_INTERKASSA_ORDER') ?>
+        <strong><?php echo $ik_pm_no ?></strong><br>
+        <br><?php echo $VM_LANG->_('PAYMENT_INTERKASSA_TO_PAY') ?>
+        <strong><?php echo $ik_am ?><?php echo $ik_cur ?></strong>
+        <p>
+            <input type="hidden" name="ik_co_id" value="<?php echo $ik_co_id; ?>">
+            <input type="hidden" name="ik_pm_no" value="<?php echo $ik_pm_no; ?>">
+            <input type="hidden" name="ik_desc" value="<?php echo $ik_desc; ?>">
+            <input type="hidden" name="ik_cur" value="<?php echo $ik_cur; ?>">
+            <input type="hidden" name="ik_am" value="<?php echo $ik_am; ?>">
+            <input type="hidden" name="ik_sign" value="<?php echo $ik_sign; ?>">
+            <input type="hidden" name="ik_suc_u" value="<?php echo $ik_suc_u ?>">
+            <input type="hidden" name="ik_pnd_u" value="<?php echo $ik_pnd_u ?>">
+            <input type="hidden" name="ik_fal_u" value="<?php echo $ik_fal_u ?>">
+            <input type="hidden" name="ik_ia_u" value="<?php echo $ik_ia_u ?>">
+            <input type="submit" value="<?php echo $VM_LANG->_('PAYMENT_INTERKASSA_BUTTON') ?>">
+        </p>
+    </div>
+</form>
+ 
+ 
