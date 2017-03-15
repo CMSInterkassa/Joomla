@@ -1,16 +1,9 @@
 <?php
-/* Создано в компании www.gateon.net
- * =================================================================
- * Модуль оплаты Интеркасса 2.0 для Joomla 3.4.8 + VirtueMart 3.0.x 
- * ПРИМЕЧАНИЕ ПО ИСПОЛЬЗОВАНИЮ
- * =================================================================
- *  Этот файл предназначен для Joomla 3.4.8
- *  www.gateon.net не гарантирует правильную работу этого расширения на любой другой
- *  версии Joomla, кроме Joomla 3.4.8
- *  данный продукт не поддерживает программное обеспечение для других
- *  версий Joomla.
- * =================================================================
-*/
+//Модуль разработан в компании GateOn предназначен для CMS Joomla 3.5 + VirtueMart 3.0.x 
+//Сайт разработчикa: www.gateon.net
+//E-mail: www@smartbyte.pro
+//Версия: 1.2
+
 if (!defined('_VALID_MOS') && !defined('_JEXEC')){
     die('Direct Access to ' . basename(__FILE__) . ' is not allowed.');
 }
@@ -54,7 +47,7 @@ class plgVmPaymentInterkassa extends vmPSPlugin
         
         return $SQLfields;
     }
-    
+
     function plgVmConfirmedOrder($cart, $order)
     {
         if (!($method = $this->getVmPluginMethod($order['details']['BT']->virtuemart_paymentmethod_id))) {
@@ -103,6 +96,7 @@ class plgVmPaymentInterkassa extends vmPSPlugin
         $this->storePSPluginInternalData($dbValues);
         $success_url = JROUTE::_(JURI::root().'index.php?option=com_virtuemart&view=orders&layout=details&order_number=' . $order['details']['BT']->order_number . '&order_pass=' . $order['details']['BT']->order_pass);
         $fail_url = JROUTE::_(JURI::root().'index.php?option=com_virtuemart&view=pluginresponse&task=pluginUserPaymentCancel&on=' . $order['details']['BT']->order_number . '&pm=' . $order['details']['BT']->virtuemart_paymentmethod_id);
+        $interaction_url = JROUTE::_(JURI::root().'index.php?option=com_virtuemart&view=pluginresponse&task=pluginnotification&pro=1&tmpl=component');
 
         $params = array(
             'ik_am' => $amount,
@@ -112,6 +106,8 @@ class plgVmPaymentInterkassa extends vmPSPlugin
             'ik_desc' => "#$virtuemart_order_id",
             'ik_suc_u' => $success_url,
             'ik_fal_u' => $fail_url,
+            'ik_pnd_u' => $success_url,
+            'ik_ia_u' => $interaction_url,
             'ik_exp' => date("Y-m-d H:i:s", time() + 24 * 3600)
         );
 
@@ -122,7 +118,7 @@ class plgVmPaymentInterkassa extends vmPSPlugin
         $signature = base64_encode(md5($signString, true));
         unset($params["secret"]);
 
-		$html = '<form action='.$action_url.' method="POST"  name="vm_interkassa_form">
+		$html = '<form action='.$action_url.' method="POST"  name="vm_interkassa_form" id="ikform">
 		            <input type="hidden" value="'.$amount.'" name="ik_am">
 					<input type="hidden" value="'.$method->merchant_id.'" name="ik_co_id">					
 					<input type="hidden" value="'.$virtuemart_order_id.'" name="ik_pm_no">
@@ -130,16 +126,87 @@ class plgVmPaymentInterkassa extends vmPSPlugin
 					<input type="hidden" value="'.$currency.'" name="ik_cur">
 					<input type="hidden" value="'.$dateexp.'" name="ik_exp">					
 					<input type="hidden" value="'.$signature.'" name="ik_sign">					
-					<input type="hidden" value="'.$success_url.'" name="ik_suc_u">					
-					<input type="hidden" value="'.$fail_url.'" name="ik_fal_u">					
+                    <input type="hidden" value="'.$success_url.'" name="ik_suc_u">                  
+					<input type="hidden" value="'.$success_url.'" name="ik_pnd_u">					
+                    <input type="hidden" value="'.$interaction_url.'" name="ik_ia_u">                 
+                    <input type="hidden" value="'.$fail_url.'" name="ik_fal_u">                 				
 				</form>
-				<script type="text/javascript">
-					document.forms.vm_interkassa_form.submit()
-				</script>
+			     <button onclick="document.forms.vm_interkassa_form.submit()" class="btn btn-primary">Подтвердить</button>
 				';
-
+        if($method->api_status == 1){
+            $_SESSION['virtuemart_paymentmethod_id'] = $order['details']['BT']->virtuemart_paymentmethod_id;
+            $img_path = JURI::base(). "plugins/vmpayment/interkassa/paysystems/";
+            $payment_systems = $this->getIkPaymentSystems($method->merchant_id, $method->api_id, $method->api_key);
+           $html .=  require 'api.tpl.php';
+        }
+        
         return $this->processConfirmedOrderPaymentResponse(true, $cart, $order, $html, $this->renderPluginName($method, $order), 'P');
-   }
+        }
+         function plgVmOnSelfCallFE ($type, $name, &$render){
+             $method = $this->getVmPluginMethod($_SESSION['virtuemart_paymentmethod_id']);
+            if ($name != $this->_name || $type != 'vmpayment') return false;
+            
+            $params = array();
+            parse_str($_POST['form'], $params);
+
+             $render->sign = $this->IkSignFormation($params, $method->secret_key);
+        }
+
+        public function IkSignFormation($data, $secret_key){
+            if (!empty($data['ik_sign'])) unset($data['ik_sign']);
+
+            $dataSet = array();
+            foreach ($data as $key => $value) {
+                if (!preg_match('/ik_/', $key)) continue;
+                $dataSet[$key] = $value;
+            }
+
+            ksort($dataSet, SORT_STRING);
+            array_push($dataSet, $secret_key);
+            $arg = implode(':', $dataSet);
+            $ik_sign = base64_encode(md5($arg, true));
+
+            return $ik_sign;
+        }
+        function getIkPaymentSystems($ik_co_id, $ik_api_id, $ik_api_key){
+        $username = $ik_api_id;
+        $password = $ik_api_key;
+        $remote_url = 'https://api.interkassa.com/v1/paysystem-input-payway?checkoutId=' . $ik_co_id;
+
+        // Create a stream
+        $opts = array(
+            'http' => array(
+                'method' => "GET",
+                'header' => "Authorization: Basic " . base64_encode("$username:$password")
+            )
+        );
+
+        $context = stream_context_create($opts);
+        $file = file_get_contents($remote_url, false, $context);
+        $json_data = json_decode($file);
+
+        if($json_data->status != 'error'){
+        $payment_systems = array();
+        foreach ($json_data->data as $ps => $info) {
+            $payment_system = $info->ser;
+            if (!array_key_exists($payment_system, $payment_systems)) {
+                $payment_systems[$payment_system] = array();
+                foreach ($info->name as $name) {
+                    if ($name->l == 'en') {
+                        $payment_systems[$payment_system]['title'] = ucfirst($name->v);
+                    }
+                    $payment_systems[$payment_system]['name'][$name->l] = $name->v;
+
+                }
+            }
+            $payment_systems[$payment_system]['currency'][strtoupper($info->curAls)] = $info->als;
+
+        }
+        return $payment_systems;
+        }else{
+            echo '<strong style="color:red;">API connection error!<br>'.$json_data->message.'</strong>';
+        }
+    }
     
     function plgVmOnShowOrderBEPayment($virtuemart_order_id, $virtuemart_payment_id)
     {
@@ -234,6 +301,7 @@ class plgVmPaymentInterkassa extends vmPSPlugin
     
     public function plgVmOnPaymentNotification()
     {	
+       // $this->wrlog('Hello');
         if (!class_exists('VirtueMartModelOrders'))
             require(JPATH_VM_ADMINISTRATOR . DS . 'models' . DS . 'orders.php');
 
@@ -268,7 +336,6 @@ class plgVmPaymentInterkassa extends vmPSPlugin
 	                array_push($request, $secret_key);
 	                $str = implode(':', $request);
 	                $sign = base64_encode(md5($str, true));
-
 	                if ($request_sign == $sign) {
 	                    $order['order_status'] = $method->status_success;
 	                    $order['virtuemart_order_id'] = $orderid;
@@ -331,7 +398,7 @@ class plgVmPaymentInterkassa extends vmPSPlugin
 	        'ip_end'=>'151.80.190.104'
 	    );
 
-	    if(!ip2long($_SERVER['REMOTE_ADDR'])>=ip2long($ip_stack['ip_begin']) && !ip2long($_SERVER['REMOTE_ADDR'])<=ip2long($ip_stack['ip_end'])){
+	    if(ip2long($_SERVER['REMOTE_ADDR'])<ip2long($ip_stack['ip_begin']) || ip2long($_SERVER['REMOTE_ADDR'])>ip2long($ip_stack['ip_end'])){
 	        $this->wrlog('REQUEST IP'.$_SERVER['REMOTE_ADDR'].'doesnt match');
 	        die('Ты мошенник! Пшел вон отсюда!');
 	    }

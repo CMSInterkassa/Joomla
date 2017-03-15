@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <extension version="3.4" type="plugin" method="upgrade" group="vmpayment">
-    <name>VM - Interkassa</name>
+    <name>VM-Interkassa</name>
     <creationDate>May 2016</creationDate>
     <author>GateOn</author>
     <authorUrl>http://www.gateon.net</authorUrl>
     <copyright>Copyright (C) 2016 www.interkassa.com</copyright>
     <license></license>
-    <version>1.0</version>
+    <version>1.2</version>
     <description>Interkassa</description>
 	
 	<languages>		
@@ -32,6 +32,18 @@
                     <option value="1">INTERKASSA_TEST_MODE_OFF</option>
                 </field>	
 				
+				
+				<field name="api_id" type="text" size="100" label="INTERKASSA_API_ID" description="INTERKASSA_API_ID_DESC"/>
+
+				<field name="api_key" type="text" size="100" label="INTERKASSA_API_KEY" description="INTERKASSA_API_KEY_DESC"/>
+
+				<field name="api_status" type="radio" default="1" label="INTERKASSA_API_STATUS"  description="INTERKASSA_API_STATUS_DESC" >
+                    <option value="1">INTERKASSA_API_ON</option>
+                    <option value="0">INTERKASSA_API_OFF</option>
+                </field>	
+				
+
+
 				<field name="hash_alg" type="list" default="md5" label="INTERKASSA_HASH_TYPE"  description="INTERKASSA_HASH_TYPE_DESC">
                     <option value="sha256">sha256</option>
                     <option value="md5">md5</option>
