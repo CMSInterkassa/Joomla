@@ -4,6 +4,10 @@
 //E-mail: www@smartbyte.pro
 //Версия: 1.2
 
+
+    
+
+
 if (!defined('_VALID_MOS') && !defined('_JEXEC')){
     die('Direct Access to ' . basename(__FILE__) . ' is not allowed.');
 }
@@ -168,46 +172,100 @@ class plgVmPaymentInterkassa extends vmPSPlugin
 
             return $ik_sign;
         }
-        function getIkPaymentSystems($ik_co_id, $ik_api_id, $ik_api_key){
-        $username = $ik_api_id;
-        $password = $ik_api_key;
-        $remote_url = 'https://api.interkassa.com/v1/paysystem-input-payway?checkoutId=' . $ik_co_id;
 
-        // Create a stream
-        $opts = array(
-            'http' => array(
-                'method' => "GET",
-                'header' => "Authorization: Basic " . base64_encode("$username:$password")
-            )
-        );
+        public function getIkPaymentSystems($ik_cashbox_id, $ik_api_id, $ik_api_key)
+        {
+            $username = $ik_api_id;
+            $password = $ik_api_key;
+            $remote_url = 'https://api.interkassa.com/v1/' . 'paysystem-input-payway?checkoutId=' . $ik_cashbox_id;
 
-        $context = stream_context_create($opts);
-        $file = file_get_contents($remote_url, false, $context);
-        $json_data = json_decode($file);
+            $businessAcc = $this->getIkBusinessAcc($username, $password);
 
-        if($json_data->status != 'error'){
-        $payment_systems = array();
-        foreach ($json_data->data as $ps => $info) {
-            $payment_system = $info->ser;
-            if (!array_key_exists($payment_system, $payment_systems)) {
-                $payment_systems[$payment_system] = array();
-                foreach ($info->name as $name) {
-                    if ($name->l == 'en') {
-                        $payment_systems[$payment_system]['title'] = ucfirst($name->v);
-                    }
-                    $payment_systems[$payment_system]['name'][$name->l] = $name->v;
-
-                }
+            $ikHeaders = [];
+            $ikHeaders[] = "Authorization: Basic " . base64_encode("$username:$password");
+            if (!empty($businessAcc)) {
+                $ikHeaders[] = "Ik-Api-Account-Id: " . $businessAcc;
             }
-            $payment_systems[$payment_system]['currency'][strtoupper($info->curAls)] = $info->als;
 
+            $ch = curl_init();
+            curl_setopt($ch, CURLOPT_URL, $remote_url);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
+            curl_setopt($ch, CURLOPT_HEADER, false);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $ikHeaders);
+            $response = curl_exec($ch);
+
+            $json_data = json_decode($response);
+
+            if (empty($json_data))
+                return '<strong style="color:red;">Error!!! System response empty!</strong>';
+
+            if ($json_data->status != 'error') {
+                $payment_systems = array();
+                if (!empty($json_data->data)) {
+                    foreach ($json_data->data as $ps => $info) {
+                        $payment_system = $info->ser;
+                        if (!array_key_exists($payment_system, $payment_systems)) {
+                            $payment_systems[$payment_system] = array();
+                            foreach ($info->name as $name) {
+                                if ($name->l == 'en') {
+                                    $payment_systems[$payment_system]['title'] = ucfirst($name->v);
+                                }
+                                $payment_systems[$payment_system]['name'][$name->l] = $name->v;
+                            }
+                        }
+                        $payment_systems[$payment_system]['currency'][strtoupper($info->curAls)] = $info->als;
+                    }
+                }
+
+                return !empty($payment_systems) ? $payment_systems : '<strong style="color:red;">API connection error or system response empty!</strong>';
+            } else {
+                if (!empty($json_data->message))
+                    return '<strong style="color:red;">API connection error!<br>' . $json_data->message . '</strong>';
+                else
+                    return '<strong style="color:red;">API connection error or system response empty!</strong>';
+            }
         }
-        return $payment_systems;
-        }else{
-            echo '<strong style="color:red;">API connection error!<br>'.$json_data->message.'</strong>';
+
+        public function getIkBusinessAcc($username = '', $password = '')
+        {
+            $tmpLocationFile = __DIR__ . '/tmpLocalStorageBusinessAcc.ini';
+            $dataBusinessAcc = function_exists('file_get_contents') ? file_get_contents($tmpLocationFile) : '{}';
+            $dataBusinessAcc = json_decode($dataBusinessAcc, 1);
+            $businessAcc = is_string($dataBusinessAcc['businessAcc']) ? trim($dataBusinessAcc['businessAcc']) : '';
+            if (empty($businessAcc) || sha1($username . $password) !== $dataBusinessAcc['hash']) {
+                $curl = curl_init();
+                curl_setopt($curl, CURLOPT_URL, 'https://api.interkassa.com/v1/' . 'account');
+                curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, false);
+                curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+                curl_setopt($curl, CURLOPT_FOLLOWLOCATION, false);
+                curl_setopt($curl, CURLOPT_HEADER, false);
+                curl_setopt($curl, CURLOPT_HTTPHEADER, ["Authorization: Basic " . base64_encode("$username:$password")]);
+                $response = curl_exec($curl);
+
+                if (!empty($response['data'])) {
+                    foreach ($response['data'] as $id => $data) {
+                        if ($data['tp'] == 'b') {
+                            $businessAcc = $id;
+                            break;
+                        }
+                    }
+                }
+
+                if (function_exists('file_put_contents')) {
+                    $updData = [
+                        'businessAcc' => $businessAcc,
+                        'hash' => sha1($username . $password)
+                    ];
+                    file_put_contents($tmpLocationFile, json_encode($updData, JSON_PRETTY_PRINT));
+                }
+
+                return $businessAcc;
+            }
+
+            return $businessAcc;
         }
-    }
-    
     function plgVmOnShowOrderBEPayment($virtuemart_order_id, $virtuemart_payment_id)
     {
         if (!$this->selectedThisByMethodId($virtuemart_payment_id)) {
@@ -392,6 +450,8 @@ class plgVmPaymentInterkassa extends vmPSPlugin
         fclose($doc);
        
     }
+    
+    
  	function checkIP(){
 	    $ip_stack = array(
 	        'ip_begin'=>'151.80.190.97',
